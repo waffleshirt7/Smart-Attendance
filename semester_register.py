@@ -88,8 +88,9 @@ def create_semester_register(df, dates, students):
         attendance = []
         for _, student in students.iterrows():
             name = student['Name']
+            roll_no = student['Roll No.']
             # Check if student has attendance on this date
-            record = df[(df['Name'] == name) & (df['Date'] == date)]
+            record = df[(df['Roll No.'] == roll_no) & (df['Date'] == date)]
             if len(record) > 0:
                 attendance.append('P')  # Present
             else:
@@ -104,6 +105,10 @@ def create_semester_register(df, dates, students):
 
 
 def save_to_excel(register, dates):
+    # Swap Column A and B (Name ↔ Roll No.)
+    cols = register.columns.tolist()
+    cols[0], cols[1] = cols[1], cols[0]
+    register = register[cols]
     """Save register to Excel with formatting."""
     filename = "attendance_sheets/semester_register.xlsx"
     
