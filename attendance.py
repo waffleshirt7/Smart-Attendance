@@ -82,6 +82,10 @@ class AttendanceSettings:
     # Use advanced preprocessing
     use_face_alignment: bool = True
     use_clahe: bool = True
+    # Minimum confidence (%) required to consider a prediction as a valid match
+    min_confidence: float = 60.0
+    # Minimum confidence for DeepFace (more strict by default)
+    deepface_min_confidence: float = 70.0
 
 
 class ImprovedAttendanceSystem:
@@ -383,16 +387,22 @@ class ImprovedAttendanceSystem:
                 match_key, confidence = self._recognize_lbph(face_roi)
             
             if match_key:
-                candidates.append({
-                    "confidence": confidence,
-                    "match_key": match_key,
-                    "rect": (x, y, w, h),
-                })
+                # enforce minimum confidence to reduce false positives
+                required_min = self.settings.deepface_min_confidence if self.use_deepface else self.settings.min_confidence
+                if confidence >= required_min:
+                    candidates.append({
+                        "confidence": confidence,
+                        "match_key": match_key,
+                        "rect": (x, y, w, h),
+                    })
+                else:
+                    # treat as unknown when confidence too low
+                    cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 200), 2)
+                    self._draw_label(frame, "Unknown", x, max(20, y - 10), bg_color=(0, 0, 150))
             else:
                 # Draw unknown face immediately (not persisted)
                 cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 200), 2)
-                self._draw_label(frame, "Unknown", x, max(20, y - 10),
-                               bg_color=(0, 0, 150))
+                self._draw_label(frame, "Unknown", x, max(20, y - 10), bg_color=(0, 0, 150))
         
         # Update attendance with consecutive frame validation
         for candidate in candidates:
@@ -413,7 +423,13 @@ class ImprovedAttendanceSystem:
                 self.record_attendance(name, roll, candidate["confidence"], method)
                 # Prevent counter from growing unbounded
                 self.match_counts[key] = self.settings.required_consecutive_frames
-        
+
+        # Clean up old unmatched keys
+        self.match_counts = {
+            k: v for k, v in self.match_counts.items()
+            if any(c["match_key"] == k for c in candidates) or v > 0
+        }
+
         # Decrease persistence frames for labels not seen this frame
         keys_to_delete = []
         current_keys = {c['match_key'] for c in candidates}
