@@ -1,0 +1,7 @@
+opencv-python==4.8.1.78
+opencv-contrib-python==4.8.1.78
+numpy==1.24.3
+pandas==2.0.3
+deepface==0.0.75
+tensorflow==2.13.0
+pillow==10.0.0

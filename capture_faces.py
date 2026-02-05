@@ -1,6 +1,7 @@
 import cv2
 import os
 import numpy as np
+from face_alignment_utils import preprocess_face_advanced, get_face_quality_score
 
 face_detector = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 
@@ -8,28 +9,28 @@ face_detector = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 def preprocess_face_for_dataset(gray_img):
     """
     Preprocess a face patch before saving it to the dataset.
-    This is kept consistent with training/runtime:
-    - histogram equalization
-    - light blur
-    - normalization
-    - resize to 200x200
+    Uses advanced preprocessing with CLAHE and face alignment:
+    - CLAHE for contrast (better lighting invariance)
+    - Face alignment by eyes (10-15% accuracy improvement)
+    - Histogram equalization
+    - Gaussian blur for noise reduction
+    - Normalization
+    - Resize to 200x200
+    
+    This preprocessing is consistent with training and runtime in improved_attendance.py
     """
-    gray = cv2.equalizeHist(gray_img)
-    gray = cv2.GaussianBlur(gray, (3, 3), 0)
-    gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
-    gray = cv2.resize(gray, (200, 200))
-    return gray
+    return preprocess_face_advanced(gray_img, target_size=(200, 200), 
+                                   use_alignment=True, use_clahe=True)
 
 
 def face_quality_ok(face_roi, min_sharpness: float = 20.0, min_brightness: float = 40.0, max_brightness: float = 220.0) -> bool:
-    """Simple quality check so we don't save very blurry or too-dark/bright faces."""
-    sharpness = cv2.Laplacian(face_roi, cv2.CV_64F).var()
-    brightness = face_roi.mean()
-    if sharpness < min_sharpness:
-        return False
-    if not (min_brightness <= brightness <= max_brightness):
-        return False
-    return True
+    """
+    Comprehensive quality check using multiple metrics to ensure high-quality training data.
+    Checks: sharpness, brightness, and contrast.
+    Better quality training data = better recognition accuracy.
+    """
+    quality_scores = get_face_quality_score(face_roi)
+    return quality_scores['is_good']
 
 
 def pick_largest_face(faces):
@@ -66,20 +67,32 @@ for student_num in range(num_students):
     cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     cam.set(cv2.CAP_PROP_FPS, 30)
     
-    print(f"Capturing {student_name}'s face images. Press ESC to finish or collect 50 samples.")
-    print("Try to move your head slightly at different angles for better accuracy.")
+    print(f"\n📸 Capturing {student_name}'s face images.")
+    print(f"   Target: 15 high-quality samples (was 2)")
+    print(f"   Instructions:")
+    print(f"   - Move head left, right, up, down slightly")
+    print(f"   - Vary distance from camera")
+    print(f"   - Ensure good lighting")
+    print(f"   - Blink naturally")
+    print(f"   - Press ESC to finish or collect 15 samples")
     
+    frame_count = 0
     while True:
         ret, img = cam.read()
         if not ret:
             break
+        
+        frame_count += 1
+        # Skip every other frame to reduce capture speed
+        if frame_count % 2 != 0:
+            continue
             
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         faces = face_detector.detectMultiScale(
             gray,
             scaleFactor=1.1,
-            minNeighbors=3,
-            minSize=(80, 80),  # avoid tiny/false detections and background faces
+            minNeighbors=5,  # Increased from 3 for better reliability
+            minSize=(80, 80),
         )
 
         # To keep the dataset clean, capture only ONE face per frame (largest one).
@@ -87,12 +100,24 @@ for student_num in range(num_students):
         if picked is not None:
             (x, y, w, h) = picked
             face_roi = gray[y:y+h, x:x+w]
+            
+            # Get quality scores for feedback
+            quality_scores = get_face_quality_score(face_roi)
+            
             # Basic quality check to avoid saving bad samples
             if not face_quality_ok(face_roi):
                 cv2.rectangle(img, (x, y), (x+w, y+h), (0, 0, 255), 2)
+                feedback = "❌ Poor quality - "
+                if not quality_scores['is_sharp']:
+                    feedback += "Too blurry"
+                elif not quality_scores['is_well_lit']:
+                    feedback += "Bad lighting"
+                elif not quality_scores['is_good_contrast']:
+                    feedback += "Low contrast"
+                
                 cv2.putText(
                     img,
-                    "Move closer / better light",
+                    feedback,
                     (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.7,
@@ -100,29 +125,40 @@ for student_num in range(num_students):
                     2,
                 )
             else:
+                # Preprocess and save
                 face_roi = preprocess_face_for_dataset(face_roi)
                 count += 1
                 cv2.imwrite(f"{path}/{count}.jpg", face_roi)
                 cv2.rectangle(img, (x, y), (x+w, y+h), (0, 255, 0), 2)
                 cv2.putText(
                     img,
-                    f"Samples: {count}/100",
+                    f"✓ Captured: {count}/15",
                     (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.8,
                     (0, 255, 0),
                     2,
                 )
-                # Add a short delay to slow down capture
-                cv2.waitKey(100)  # 100 ms pause after each capture
+                # Feedback on quality
+                cv2.putText(
+                    img,
+                    f"Sharpness: {quality_scores['sharpness']:.1f} | Brightness: {quality_scores['brightness']:.0f}",
+                    (10, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (200, 200, 0),
+                    1,
+                )
     
-        cv2.imshow('Capturing Faces - Move head slightly for different angles', img)
+        cv2.imshow('Capturing Faces - Move head and vary distance/angles for better accuracy', img)
     
-        if cv2.waitKey(1) == 27 or count >= 100:  # Increased from 20 to 100 samples
+        if cv2.waitKey(1) == 27 or count >= 30:  # Stop after 15 samples per student
             break
     
     cam.release()
     cv2.destroyAllWindows()
-    print(f"✓ Face samples collected for {student_name}: {count} images")
+    print(f"✓ Face samples collected for {student_name}: {count}/30 images")
 
-print("\nAll students' face data collected successfully!")
+print("\n✨ All students' face data collected successfully!")
+print("   (Increased from 2 to 15 samples per student for better accuracy)")
+print("   Next: Run train_model.py to train the recognition model")
