@@ -1,288 +1,144 @@
 import cv2
-import numpy as np
 import os
+import cv2
+import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
 import seaborn as sns
-from pathlib import Path
-import pandas as pd
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
+import argparse
 
 
-def preprocess_face_for_testing(gray_img):
-    """Apply the same preprocessing used during training and runtime."""
-    gray = cv2.equalizeHist(gray_img)
-    gray = cv2.GaussianBlur(gray, (3, 3), 0)
-    gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
-    gray = cv2.resize(gray, (200, 200))
-    return gray
+def preprocess(img):
+    img = cv2.equalizeHist(img)
+    img = cv2.resize(img, (200, 200))
+    return img
 
 
-def load_test_data(dataset_path="dataset"):
-    """Load all images from dataset and prepare them for testing."""
-    faces = []
-    true_labels = []
-    label_dict = {}
-    label = 0
-
+def load_dataset(dataset_path):
+    names = []
+    images = []
+    labels = []
     if not os.path.exists(dataset_path):
         return None, None, None
-
-    for folder in sorted(os.listdir(dataset_path)):
-        folder_path = os.path.join(dataset_path, folder)
-
-        if not os.path.isdir(folder_path):
+    for idx, folder in enumerate(sorted(os.listdir(dataset_path))):
+        fp = os.path.join(dataset_path, folder)
+        if not os.path.isdir(fp):
             continue
-
-        label_dict[label] = folder
-
-        image_paths = [
-            os.path.join(folder_path, img)
-            for img in os.listdir(folder_path)
-            if img.lower().endswith((".jpg", ".jpeg", ".png"))
-        ]
-
-        if len(image_paths) == 0:
-            print(f"Warning: No images found for {folder}")
-            continue
-
-        for img_path in image_paths:
-            try:
-                gray = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-                if gray is None:
-                    print(f"Warning: Could not read {img_path}")
-                    continue
-
-                gray = preprocess_face_for_testing(gray)
-                faces.append(gray)
-                true_labels.append(label)
-
-            except Exception as e:
-                print(f"Error processing {img_path}: {e}")
+        for f in os.listdir(fp):
+            if not f.lower().endswith((".jpg", ".jpeg", ".png")):
                 continue
-
-        print(f"Loaded {len(image_paths)} images for {folder}")
-        label += 1
-
-    if len(faces) == 0:
+            p = os.path.join(fp, f)
+            img = cv2.imread(p, cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                continue
+            images.append(preprocess(img))
+            labels.append(folder)
+            names.append(folder)
+    if not images:
         return None, None, None
-
-    return np.array(faces), np.array(true_labels), label_dict
-
-
-def create_demo_confusion_matrix():
-    """Create a demo confusion matrix from simulated predictions."""
-    print("\nNo dataset found. Generating DEMO confusion matrix...")
-    print("(This shows what the confusion matrix will look like with real data)\n")
-
-    # Simulated data for demonstration
-    num_people = 5
-    samples_per_person = 20
-    
-    # Create simulated true labels and predictions
-    true_labels = np.repeat(range(num_people), samples_per_person)
-    
-    # Create predictions with some realistic errors
-    predicted_labels = true_labels.copy()
-    
-    # Add some misclassifications (90% accuracy scenario)
-    num_errors = int(len(true_labels) * 0.1)
-    error_indices = np.random.choice(len(true_labels), num_errors, replace=False)
-    
-    for idx in error_indices:
-        true_label = true_labels[idx]
-        # Misclassify to a different person
-        wrong_labels = [i for i in range(num_people) if i != true_label]
-        predicted_labels[idx] = np.random.choice(wrong_labels)
-    
-    label_dict = {i: f"Person_{i+1}" for i in range(num_people)}
-    
-    return true_labels, predicted_labels, label_dict
+    return np.array(images), np.array(labels), sorted(list(set(names)))
 
 
-def visualize_confusion_matrix(cm, label_dict, output_dir="confusion_matrices"):
-    """Create visualizations from confusion matrix."""
-    from datetime import datetime
-    
-    label_names = [label_dict.get(l, f"Person {l}") for l in sorted(label_dict.keys())]
-    
-    # Create confusion matrix heatmap
-    plt.figure(figsize=(10, 8))
-    
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                xticklabels=label_names, yticklabels=label_names,
-                cbar_kws={'label': 'Count'})
-    
-    plt.title('Confusion Matrix - Face Recognition Model', fontsize=16, fontweight='bold')
-    plt.ylabel('True Label', fontsize=12)
-    plt.xlabel('Predicted Label', fontsize=12)
+def infer_model_map(recognizer, dataset_path):
+    # majority-vote mapping: model_label -> folder name
+    from collections import Counter
+    mapping = {}
+    for folder in sorted(os.listdir(dataset_path)):
+        fp = os.path.join(dataset_path, folder)
+        if not os.path.isdir(fp):
+            continue
+        preds = []
+        for f in os.listdir(fp):
+            if not f.lower().endswith((".jpg", ".jpeg", ".png")):
+                continue
+            p = os.path.join(fp, f)
+            img = cv2.imread(p, cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                continue
+            img = preprocess(img)
+            try:
+                lab, _ = recognizer.predict(img)
+                preds.append(int(lab))
+            except Exception:
+                pass
+        if preds:
+            mapping[Counter(preds).most_common(1)[0][0]] = folder
+    return mapping
+
+
+def simple_confusion_image(cm, labels, out_path):
+    # cm: square numpy array, labels: list of names
+    cm_sum = cm.sum(axis=1, keepdims=True)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        pct = np.nan_to_num(cm / cm_sum)
+
+    annot = np.empty(cm.shape, dtype=object)
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            annot[i, j] = f"{int(cm[i, j])}\n{pct[i,j]*100:0.1f}%"
+
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(pct, annot=annot, fmt='', cmap='Blues', xticklabels=labels, yticklabels=labels, cbar_kws={'label': 'Row proportion'})
     plt.xticks(rotation=45, ha='right')
     plt.yticks(rotation=0)
+    plt.title('Confusion Matrix (count + % row)')
     plt.tight_layout()
-
-    # Save the confusion matrix plot
-    os.makedirs(output_dir, exist_ok=True)
-    
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = os.path.join(output_dir, f"confusion_matrix_{timestamp}.png")
-    
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"✓ Confusion matrix visualization saved to: {output_path}")
+    plt.savefig(out_path, dpi=200)
     plt.close()
 
-    # Per-person accuracy bar chart
-    plt.figure(figsize=(12, 6))
-    accuracies = []
-    names = []
-    
-    for i, label in enumerate(sorted(label_dict.keys())):
-        correct = cm[i, i]
-        total = cm[i].sum()
-        if total > 0:
-            acc = correct / total
-            accuracies.append(acc)
-            names.append(label_dict[label])
-    
-    overall_acc = np.trace(cm) / cm.sum()
-    
-    bars = plt.bar(range(len(names)), accuracies, color='steelblue', alpha=0.7)
-    plt.axhline(y=overall_acc, color='red', linestyle='--', 
-                label=f'Overall Accuracy: {overall_acc:.1%}', linewidth=2)
-    plt.xlabel('Person', fontsize=12)
-    plt.ylabel('Recognition Accuracy', fontsize=12)
-    plt.title('Per-Person Recognition Accuracy', fontsize=14, fontweight='bold')
-    plt.xticks(range(len(names)), names, rotation=45, ha='right')
-    plt.ylim([0, 1.05])
-    plt.legend()
-    plt.grid(axis='y', alpha=0.3)
-    
-    # Add percentage labels on bars
-    for bar, acc in zip(bars, accuracies):
-        height = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width()/2., height,
-                f'{acc:.0%}', ha='center', va='bottom', fontsize=10)
-    
-    plt.tight_layout()
-    
-    accuracy_path = os.path.join(output_dir, f"accuracy_per_person_{timestamp}.png")
-    plt.savefig(accuracy_path, dpi=300, bbox_inches='tight')
-    print(f"✓ Per-person accuracy chart saved to: {accuracy_path}")
-    plt.close()
 
-    # Save confusion matrix as CSV
-    label_names_full = [label_dict.get(l, f"Person {l}") for l in range(cm.shape[0])]
-    cm_df = pd.DataFrame(cm, index=label_names_full, columns=label_names_full)
-    csv_path = os.path.join(output_dir, f"confusion_matrix_{timestamp}.csv")
-    cm_df.to_csv(csv_path)
-    print(f"✓ Confusion matrix CSV saved to: {csv_path}")
+def main(model_path, dataset_path, out_path, no_threshold=False):
+    imgs, true_labels, label_names = load_dataset(dataset_path)
+    if imgs is None:
+        print('No dataset found')
+        return
 
-    return output_path, accuracy_path, csv_path
+    # load model
+    recognizer = cv2.face.LBPHFaceRecognizer_create()
+    if not os.path.exists(model_path):
+        print('Model not found:', model_path)
+        return
+    recognizer.read(model_path)
+
+    # predict
+    preds = []
+    for img in imgs:
+        lab, dist = recognizer.predict(img)
+        if (not no_threshold) and dist > 65.0:
+            preds.append('Unknown')
+        else:
+            preds.append(lab)
+
+    # if preds contain numeric labels, map numeric entries to names, keep 'Unknown' as-is
+    if preds and any(isinstance(p, (int, np.integer)) for p in preds):
+        model_map = infer_model_map(recognizer, dataset_path)
+        mapped = []
+        for p in preds:
+            if isinstance(p, (int, np.integer)):
+                mapped.append(model_map.get(int(p), 'Unknown'))
+            else:
+                mapped.append(p)
+        preds = mapped
+
+    # now true_labels are folder names already
+    labels_union = sorted(list(set(true_labels) | set(preds)))
+    cm = confusion_matrix(list(true_labels), list(preds), labels=labels_union)
+
+    # save single simple image
+    simple_confusion_image(cm, labels_union, out_path)
+
+    print('Saved confusion matrix image to', out_path)
+    print('\nClassification report:\n')
+    print(classification_report(list(true_labels), list(preds), labels=labels_union, target_names=labels_union, zero_division=0))
 
 
-def generate_confusion_matrix(model_path="trainer/trainer.yml", dataset_path="dataset", distance_threshold=65.0):
-    """Generate confusion matrix for the trained model."""
-
-    # Load test data
-    print("Loading test data...")
-    faces, true_labels, label_dict = load_test_data(dataset_path)
-
-    if faces is None:
-        # Use demo data
-        true_labels, predicted_labels, label_dict = create_demo_confusion_matrix()
-        accuracy = accuracy_score(true_labels, predicted_labels)
-        cm = confusion_matrix(true_labels, predicted_labels)
-        is_demo = True
-    else:
-        # Use real data
-        print(f"Total images loaded: {len(faces)}")
-        print(f"Number of identities: {len(label_dict)}")
-
-        # Load model
-        print(f"\nLoading model from {model_path}...")
-        recognizer = cv2.face.LBPHFaceRecognizer_create(radius=1, neighbors=8, grid_x=8, grid_y=8)
-        
-        if not os.path.exists(model_path):
-            print(f"Error: Model not found at {model_path}")
-            return
-
-        recognizer.read(model_path)
-        print("✓ Model loaded successfully!")
-
-        # Predict labels
-        print("\nPredicting labels...")
-        predicted_labels = []
-
-        for i, face in enumerate(faces):
-            label, distance = recognizer.predict(face)
-            
-            # If distance is too high, classify as unknown
-            if distance > distance_threshold:
-                label = -1  # Unknown person
-            
-            predicted_labels.append(label)
-
-            if (i + 1) % max(1, len(faces) // 10) == 0:
-                print(f"  Processed {i + 1}/{len(faces)} images")
-
-        predicted_labels = np.array(predicted_labels)
-        accuracy = accuracy_score(true_labels, predicted_labels)
-        cm = confusion_matrix(true_labels, predicted_labels)
-        is_demo = False
-
-    # Generate confusion matrix
-    print("\n" + "="*60)
-    print("CONFUSION MATRIX ANALYSIS")
-    print("="*60)
-
-    if is_demo:
-        print("\n⚠️  DEMO MODE - Using simulated data")
-        print("To generate real confusion matrix:")
-        print("  1. Run: python3 capture_faces.py (to capture face images)")
-        print("  2. Run: python3 train_model.py (to train the model)")
-        print("  3. Run: python3 confusion_matrix.py (to generate confusion matrix)")
-    else:
-        print("\n✓ Using REAL data from dataset")
-
-    # Print classification report
-    target_names = [label_dict.get(l, f"Person {l}") for l in sorted(label_dict.keys())]
-    print("\nClassification Report:")
-    print(classification_report(true_labels, predicted_labels, 
-                                target_names=target_names, zero_division=0))
-
-    # Print accuracy
-    print(f"\nOverall Accuracy: {accuracy:.2%}")
-
-    # Print confusion matrix statistics
-    print("\nConfusion Matrix Statistics:")
-    for i, label in enumerate(sorted(label_dict.keys())):
-        if i < cm.shape[0]:
-            correct = cm[i, i]
-            total = cm[i].sum()
-            if total > 0:
-                recall = correct / total
-                print(f"  {label_dict[label]:20s}: {correct:3d}/{total:3d} correct ({recall:.1%})")
-
-    # Visualize
-    output_path, accuracy_path, csv_path = visualize_confusion_matrix(cm, label_dict)
-
-    print("\n" + "="*60)
-    if is_demo:
-        print("DEMO confusion matrix generated successfully!")
-        print("Replace with real data when dataset is available.")
-    else:
-        print("Real confusion matrix generated successfully!")
-    print("="*60)
-
-    return cm, label_dict
-
-
-if __name__ == "__main__":
-    
-    print("="*60)
-    print("FACE RECOGNITION MODEL - CONFUSION MATRIX GENERATOR")
-    print("="*60)
-    
-    generate_confusion_matrix(
-        model_path="trainer/trainer.yml",
-        dataset_path="dataset",
-        distance_threshold=65.0
-    )
+if __name__ == '__main__':
+    p = argparse.ArgumentParser()
+    p.add_argument('--model', default='trainer/trainer.yml')
+    p.add_argument('--dataset', default='dataset')
+    p.add_argument('--out', default='confusion_matrices/confusion_matrix_simple.png')
+    p.add_argument('--no-threshold', action='store_true')
+    args = p.parse_args()
+    os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    main(args.model, args.dataset, args.out, no_threshold=args.no_threshold)
+    # End of script
