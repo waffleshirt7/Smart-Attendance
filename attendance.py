@@ -75,8 +75,8 @@ class AttendanceSettings:
     # Use single person mode (False = allow multiple people simultaneously)
     single_person_mode: bool = False  # False for classroom with multiple students
     
-    frame_width: int = 640  # Increased from 480 for better quality
-    frame_height: int = 480  # Increased from 360
+    frame_width: int = 1280  # Increased from 640 for better quality
+    frame_height: int = 720  # Increased from 480
     skip_frames: int = 2  # Process every 2nd frame (faster, still accurate)
 
     # Use advanced preprocessing
