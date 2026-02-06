@@ -63,18 +63,19 @@ for student_num in range(num_students):
     os.makedirs(path, exist_ok=True)
     
     # Set camera properties for better quality
-    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     cam.set(cv2.CAP_PROP_FPS, 30)
     
-    print(f"\n📸 Capturing {student_name}'s face images.")
-    print(f"   Target: 15 high-quality samples (was 2)")
+    print(f"\n📸 Manual Capturing {student_name}'s face images.")
+    print(f"   Target: 30 high-quality samples")
     print(f"   Instructions:")
     print(f"   - Move head left, right, up, down slightly")
     print(f"   - Vary distance from camera")
     print(f"   - Ensure good lighting")
     print(f"   - Blink naturally")
-    print(f"   - Press ESC to finish or collect 15 samples")
+    print(f"   - Press 'C' to capture when ready")
+    print(f"   - Press 'ESC' to finish")
     
     frame_count = 0
     while True:
@@ -83,9 +84,6 @@ for student_num in range(num_students):
             break
         
         frame_count += 1
-        # Skip every other frame to reduce capture speed
-        if frame_count % 2 != 0:
-            continue
             
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         faces = face_detector.detectMultiScale(
@@ -95,7 +93,7 @@ for student_num in range(num_students):
             minSize=(80, 80),
         )
 
-        # To keep the dataset clean, capture only ONE face per frame (largest one).
+        # To keep the dataset clean, only detect ONE face per frame (largest one).
         picked = pick_largest_face(faces)
         if picked is not None:
             (x, y, w, h) = picked
@@ -104,7 +102,7 @@ for student_num in range(num_students):
             # Get quality scores for feedback
             quality_scores = get_face_quality_score(face_roi)
             
-            # Basic quality check to avoid saving bad samples
+            # Show quality feedback
             if not face_quality_ok(face_roi):
                 cv2.rectangle(img, (x, y), (x+w, y+h), (0, 0, 255), 2)
                 feedback = "❌ Poor quality - "
@@ -125,14 +123,11 @@ for student_num in range(num_students):
                     2,
                 )
             else:
-                # Preprocess and save
-                face_roi = preprocess_face_for_dataset(face_roi)
-                count += 1
-                cv2.imwrite(f"{path}/{count}.jpg", face_roi)
+                # Show good quality feedback (but don't save yet - wait for 'C' press)
                 cv2.rectangle(img, (x, y), (x+w, y+h), (0, 255, 0), 2)
                 cv2.putText(
                     img,
-                    f"✓ Captured: {count}/15",
+                    f"✓ Ready: {count}/30 | Press 'C' to capture",
                     (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.8,
@@ -149,10 +144,35 @@ for student_num in range(num_students):
                     (200, 200, 0),
                     1,
                 )
+        else:
+            # No face detected
+            cv2.putText(
+                img,
+                "No face detected",
+                (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 165, 255),
+                2,
+            )
     
-        cv2.imshow('Capturing Faces - Move head and vary distance/angles for better accuracy', img)
+        cv2.imshow('Manual Face Capture - Press C to capture, ESC to finish', img)
     
-        if cv2.waitKey(1) == 27 or count >= 30:  # Stop after 15 samples per student
+        key = cv2.waitKey(1) & 0xFF
+        
+        # Press 'C' to manually capture
+        if key == ord('c') or key == ord('C'):
+            if picked is not None and face_quality_ok(face_roi):
+                # Preprocess and save
+                face_roi_processed = preprocess_face_for_dataset(face_roi)
+                count += 1
+                cv2.imwrite(f"{path}/{count}.jpg", face_roi_processed)
+                print(f"   ✓ Image {count} saved!")
+            else:
+                print(f"   ❌ Cannot capture - face quality is not good enough")
+        
+        # Press ESC to finish
+        if key == 27 or count >= 30:
             break
     
     cam.release()
@@ -160,5 +180,3 @@ for student_num in range(num_students):
     print(f"✓ Face samples collected for {student_name}: {count}/30 images")
 
 print("\n✨ All students' face data collected successfully!")
-print("   (Increased from 2 to 15 samples per student for better accuracy)")
-print("   Next: Run train_model.py to train the recognition model")
