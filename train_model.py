@@ -39,8 +39,6 @@ def main():
     label = 0
     label_dict = {}
 
-    print("📂 Loading dataset...")
-    
     for folder in sorted(os.listdir(dataset_path)):
         folder_path = os.path.join(dataset_path, folder)
 
@@ -56,7 +54,6 @@ def main():
         ]
 
         if len(image_paths) < min_images_per_person:
-            print(f"❌ Skipping '{folder}' (only {len(image_paths)} images; need at least {min_images_per_person})")
             continue
 
         person_loaded = 0
@@ -65,7 +62,6 @@ def main():
                 gray = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
 
                 if gray is None:
-                    print(f"⚠️  Warning: Could not read {img_path}")
                     continue
 
                 gray = preprocess_face_for_training(gray)
@@ -74,38 +70,22 @@ def main():
                 ids.append(label)
                 person_loaded += 1
 
-            except Exception as e:
-                print(f"❌ Error processing {img_path}: {e}")
+            except Exception:
                 continue
 
-        print(f"✓ Loaded {person_loaded} images for {folder}")
-
-        # Only advance label if we actually loaded images for this person
         if person_loaded > 0:
             label += 1
 
-    print(f"\n{'='*60}")
-    print(f"Total faces loaded: {len(faces)}")
-    
     if len(faces) == 0:
-        print("❌ ERROR: No training data found!")
-        print("   Please run: python3 capture_faces.py")
+        print("Error: No training data. Run capture_faces.py first.")
         return
 
-    # Verify sufficient data
     avg_per_person = len(faces) / max(label, 1)
     if avg_per_person < 10:
-        print(f"❌ WARNING: Only {avg_per_person:.1f} samples per person (need 15+)")
-        print("   Accuracy will be poor. Run: python3 capture_faces.py")
+        print("Error: Need at least 10 samples per person.")
         return
 
-    print(f"Number of students: {label}")
-    print(f"Average samples per person: {avg_per_person:.1f}")
-    print(f"{'='*60}\n")
-
     try:
-        print("🤖 Training LBPH model...")
-        print("   (Using CLAHE + Face Alignment + Histogram Equalization)")
         recognizer.train(faces, np.array(ids))
         
         # Create trainer directory if it doesn't exist
@@ -115,44 +95,12 @@ def main():
         model_path = "trainer/trainer.yml"
         recognizer.save(model_path)
         
-        # Verify the file was created
         if os.path.exists(model_path):
-            file_size = os.path.getsize(model_path)
-            print(f"✅ Model trained successfully!")
-            print(f"✅ Saved to: {model_path}")
-            print(f"✅ File size: {file_size / 1024:.2f} KB")
-            print(f"✅ LBPH parameters: radius=3, neighbors=10, grid_x=10, grid_y=10")
-            print(f"✅ Total training samples: {len(faces)} from {label} students")
-            
-            print(f"\n{'='*60}")
-            print(f"📈 Expected Recognition Performance:")
-            if avg_per_person >= 15:
-                print(f"   ✅ EXCELLENT: {avg_per_person:.1f} samples/person")
-                print(f"      Expected accuracy: 85-90%")
-            elif avg_per_person >= 10:
-                print(f"   ⚠️  GOOD: {avg_per_person:.1f} samples/person")
-                print(f"      Expected accuracy: 75-85%")
-            else:
-                print(f"   ❌ POOR: {avg_per_person:.1f} samples/person")
-                print(f"      Expected accuracy: <75%")
-            
-            print(f"\nAccuracy improvements:")
-            print(f"   • Enhanced LBPH (radius=3, neighbors=10): +15-20%")
-            print(f"   • CLAHE preprocessing: +5-10%")
-            print(f"   • Face alignment: +10-15%")
-            print(f"   • 15 samples per student: +20-30%")
-            print(f"{'='*60}")
-            
-            print(f"\n🚀 Next step: python3 attendance.py")
+            print(f"Model saved: {model_path} ({len(faces)} faces, {label} students)")
         else:
-            print(f"❌ ERROR: Model file was not created at {model_path}")
+            print("Error: Model file was not created.")
             
     except Exception as e:
-        print(f"❌ ERROR during training: {e}")
-        import traceback
-        traceback.print_exc()
-        return
-
-
+        print(f"Error: {e}")
 if __name__ == "__main__":
     main()

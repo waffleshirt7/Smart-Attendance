@@ -18,7 +18,7 @@ def load_all_attendance():
     records_dir = Path("attendance_records")
     
     if not records_dir.exists():
-        print("❌ No attendance records found!")
+        print("Error: No attendance records found.")
         return None, None
     
     all_records = []
@@ -29,11 +29,11 @@ def load_all_attendance():
             with open(json_file, 'r') as f:
                 data = json.load(f)
                 all_records.extend(data)
-        except Exception as e:
-            print(f"⚠️ Error reading {json_file}: {e}")
+        except Exception:
+            pass
     
     if not all_records:
-        print("❌ No attendance data found in records!")
+        print("Error: No attendance data in records.")
         return None, None
     
     # Create DataFrame
@@ -41,7 +41,7 @@ def load_all_attendance():
     
     # Ensure Date column is present
     if 'Date' not in df.columns:
-        print("❌ Date column not found in attendance records!")
+        print("Error: Date column not found in records.")
         return None, None
     
     # Convert date format (DD-MM-YYYY to sortable format), handle epoch values
@@ -192,9 +192,7 @@ def save_to_excel(register, dates):
     ws[f'A{legend_row + 2}'].fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
     ws[f'B{legend_row + 2}'] = "Absent"
     
-    # Save
     wb.save(filename)
-    print(f"✅ Excel register saved: {filename}")
     
     return filename
 
@@ -205,7 +203,6 @@ def save_to_csv(register):
     Path("attendance_sheets").mkdir(exist_ok=True)
     
     register.to_csv(filename, index=False)
-    print(f"✅ CSV register saved: {filename}")
     
     return filename
 
@@ -409,56 +406,19 @@ def save_to_html(register, dates):
     with open(filename, 'w', encoding='utf-8') as f:
         f.write(html_content)
     
-    print(f"✅ HTML register saved: {filename}")
-    
     return filename
 
 
-def display_register(register):
-    """Display register in terminal."""
-    print("\n" + "="*100)
-    print("ATTENDANCE REGISTER".center(100))
-    print("="*100 + "\n")
-    
-    # Display as formatted table
-    print(register.to_string(index=False))
-    
-    print("\n" + "="*100)
-    print(f"Total Students: {len(register)} | Total Days: {len(register.columns) - 2}")
-    print("="*100 + "\n")
-
-
 def main():
-    """Main function."""
-    print("📊 Loading attendance records...")
-    
     df, dates = load_all_attendance()
     if df is None:
         return
-    
-    print(f"✅ Loaded {len(df)} records from {len(dates)} days")
-    
-    # Get student data
     students = get_student_data(df)
-    print(f"✅ Found {len(students)} unique students")
-    
-    # Create register
-    print("📝 Creating semester register...")
     register = create_semester_register(df, dates, students)
-    
-    # Display
-    display_register(register)
-    
-    # Save files
-    print("💾 Saving register in multiple formats...\n")
     save_to_excel(register, dates)
     save_to_csv(register)
     save_to_html(register, dates)
-    
-    print("\n✨ All done! Register files created in 'attendance_sheets/' folder")
-    print("   - semester_register.xlsx (Excel)")
-    print("   - semester_register.csv (CSV)")
-    print("   - semester_register.html (Web view)")
+    print(f"Register saved: attendance_sheets/ ({len(register)} students, {len(dates)} days)")
 
 
 if __name__ == "__main__":

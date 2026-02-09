@@ -1,0 +1,20 @@
+[
+  {
+    "Name":"Jikmet lama",
+    "Roll No.":"2",
+    "Date":"08-02-2026",
+    "Time":"19:23:50",
+    "Status":"Present (High confidence)",
+    "Confidence (%)":"83.18",
+    "Method":"DeepFace"
+  },
+  {
+    "Name":"Takap Lama",
+    "Roll No.":"1",
+    "Date":"08-02-2026",
+    "Time":"19:24:41",
+    "Status":"Present (High confidence)",
+    "Confidence (%)":"80.13",
+    "Method":"DeepFace"
+  }
+]

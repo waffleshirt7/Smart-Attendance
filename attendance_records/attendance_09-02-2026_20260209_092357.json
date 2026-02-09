@@ -1,0 +1,20 @@
+[
+  {
+    "Name":"Jikmet lama",
+    "Roll No.":"2",
+    "Date":"09-02-2026",
+    "Time":"09:23:24",
+    "Status":"Present (High confidence)",
+    "Confidence (%)":"90.04",
+    "Method":"DeepFace"
+  },
+  {
+    "Name":"Sangat Maharjan",
+    "Roll No.":"4",
+    "Date":"09-02-2026",
+    "Time":"09:23:42",
+    "Status":"Present (High confidence)",
+    "Confidence (%)":"74.96",
+    "Method":"DeepFace"
+  }
+]

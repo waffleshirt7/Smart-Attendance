@@ -1,14 +1,22 @@
 import cv2
 import os
-import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
 import argparse
 
+try:
+    from face_alignment_utils import preprocess_face_advanced
+    USE_ADVANCED_PREPROCESS = True
+except ImportError:
+    USE_ADVANCED_PREPROCESS = False
+
 
 def preprocess(img):
+    """Use same preprocessing as train_model.py for accurate metrics."""
+    if USE_ADVANCED_PREPROCESS:
+        return preprocess_face_advanced(img, target_size=(200, 200), use_alignment=True, use_clahe=True)
     img = cv2.equalizeHist(img)
     img = cv2.resize(img, (200, 200))
     return img
@@ -90,13 +98,12 @@ def simple_confusion_image(cm, labels, out_path):
 def main(model_path, dataset_path, out_path, no_threshold=False):
     imgs, true_labels, label_names = load_dataset(dataset_path)
     if imgs is None:
-        print('No dataset found')
+        print("Error: No dataset found.")
         return
 
-    # load model
-    recognizer = cv2.face.LBPHFaceRecognizer_create()
+    recognizer = cv2.face.LBPHFaceRecognizer_create(radius=3, neighbors=10, grid_x=10, grid_y=10)
     if not os.path.exists(model_path):
-        print('Model not found:', model_path)
+        print(f"Error: Model not found: {model_path}")
         return
     recognizer.read(model_path)
 
@@ -124,12 +131,8 @@ def main(model_path, dataset_path, out_path, no_threshold=False):
     labels_union = sorted(list(set(true_labels) | set(preds)))
     cm = confusion_matrix(list(true_labels), list(preds), labels=labels_union)
 
-    # save single simple image
     simple_confusion_image(cm, labels_union, out_path)
-
-    print('Saved confusion matrix image to', out_path)
-    print('\nClassification report:\n')
-    print(classification_report(list(true_labels), list(preds), labels=labels_union, target_names=labels_union, zero_division=0))
+    print(f"Saved: {out_path}")
 
 
 if __name__ == '__main__':

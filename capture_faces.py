@@ -43,7 +43,7 @@ def pick_largest_face(faces):
 num_students = int(input("Enter number of students: "))
 
 for student_num in range(num_students):
-    print(f"\n--- Student {student_num + 1} ---")
+    print(f"\nStudent {student_num + 1}")
     
     student_id = input("Enter Student ID: ")
     student_name = input("Enter Student Name: ")
@@ -67,15 +67,7 @@ for student_num in range(num_students):
     cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     cam.set(cv2.CAP_PROP_FPS, 30)
     
-    print(f"\n📸 Manual Capturing {student_name}'s face images.")
-    print(f"   Target: 30 high-quality samples")
-    print(f"   Instructions:")
-    print(f"   - Move head left, right, up, down slightly")
-    print(f"   - Vary distance from camera")
-    print(f"   - Ensure good lighting")
-    print(f"   - Blink naturally")
-    print(f"   - Press 'C' to capture when ready")
-    print(f"   - Press 'ESC' to finish")
+    print(f"Capturing {student_name}: Press C to capture, ESC to finish. Target: 30 samples.")
     
     frame_count = 0
     while True:
@@ -167,9 +159,9 @@ for student_num in range(num_students):
                 face_roi_processed = preprocess_face_for_dataset(face_roi)
                 count += 1
                 cv2.imwrite(f"{path}/{count}.jpg", face_roi_processed)
-                print(f"   ✓ Image {count} saved!")
+                pass
             else:
-                print(f"   ❌ Cannot capture - face quality is not good enough")
+                pass
         
         # Press ESC to finish
         if key == 27 or count >= 30:
@@ -177,6 +169,6 @@ for student_num in range(num_students):
     
     cam.release()
     cv2.destroyAllWindows()
-    print(f"✓ Face samples collected for {student_name}: {count}/30 images")
+    print(f"Saved {count}/30 images for {student_name}")
 
-print("\n✨ All students' face data collected successfully!")
+print("Done.")
