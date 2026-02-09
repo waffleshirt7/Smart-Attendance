@@ -33,7 +33,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 class Launcher(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("SmartAttendance")
+        self.title("Smart Attendance")
         self.geometry("800x520")
 
         btn_frame = tk.Frame(self)
