@@ -15,6 +15,7 @@ import cv2
 import pandas as pd
 import os
 import json
+import tempfile
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -23,16 +24,12 @@ from typing import Optional, Tuple, Dict, Any, List
 import numpy as np
 from face_alignment_utils import preprocess_face_advanced, get_face_quality_score
 
-# Try to import DeepFace, fall back to LBPH if unavailable or if initialization fails
+# Try to import DeepFace, fall back to LBPH if unavailable
 try:
     from deepface import DeepFace
     DEEPFACE_AVAILABLE = True
-    print("✓ DeepFace available - will use for 99%+ accuracy")
-except Exception as e:
+except Exception:
     DEEPFACE_AVAILABLE = False
-    print("⚠ DeepFace unavailable - using LBPH fallback (80-90% accuracy)")
-    print(f"  DeepFace import/initialization error: {e}")
-    print("  To enable DeepFace, install compatible dependencies: pip install deepface tensorflow tf-keras")
 
 
 @dataclass(frozen=True)
@@ -75,8 +72,8 @@ class AttendanceSettings:
     # Use single person mode (False = allow multiple people simultaneously)
     single_person_mode: bool = False  # False for classroom with multiple students
     
-    frame_width: int = 1280  # Increased from 640 for better quality
-    frame_height: int = 720  # Increased from 480
+    frame_width: int = 640  
+    frame_height: int = 480 
     skip_frames: int = 2  # Process every 2nd frame (faster, still accurate)
 
     # Use advanced preprocessing
@@ -96,23 +93,18 @@ class ImprovedAttendanceSystem:
         self.use_deepface = use_deepface and DEEPFACE_AVAILABLE
         
         if self.use_deepface:
-            print("🚀 Using DeepFace backend (99%+ accuracy)")
             self.recognizer = None
         else:
-            print("📊 Using LBPH backend with advanced preprocessing (80-90% accuracy)")
+            # Must match train_model.py exactly
             self.recognizer = cv2.face.LBPHFaceRecognizer_create(
-                radius=1, neighbors=8, grid_x=8, grid_y=8
+                radius=3, neighbors=10, grid_x=10, grid_y=10
             )
             if not os.path.exists(self.settings.model_path):
                 raise FileNotFoundError(
                     f"Model not found at {self.settings.model_path}. "
-                    f"Please run train_model.py first.\n"
-                    f"Run: python3 capture_faces.py && python3 train_model.py"
+                    f"Please run train_model.py first."
                 )
             self.recognizer.read(self.settings.model_path)
-            print(f"✓ Model loaded: {self.settings.model_path}")
-            print(f"✓ LBPH parameters: radius=3, neighbors=10, grid_x=10, grid_y=10")
-            print(f"✓ Distance threshold: {self.settings.max_lbph_distance}")
         
         self.face_cascade = cv2.CascadeClassifier(self.settings.cascade_path)
         if self.face_cascade.empty():
@@ -163,29 +155,25 @@ class ImprovedAttendanceSystem:
                 reference_path = os.path.join(folder_path, images[0])
                 
                 try:
-                    # Save current face temporarily for comparison
-                    temp_face_path = "/tmp/temp_face.jpg"
+                    # Save current face temporarily (cross-platform temp path)
+                    fd, temp_face_path = tempfile.mkstemp(suffix=".jpg")
+                    os.close(fd)
                     cv2.imwrite(temp_face_path, face_img)
-                    
-                    # Use DeepFace verify
-                    result = DeepFace.verify(
-                        temp_face_path,
-                        reference_path,
-                        model_name="Facenet512",  # Best accuracy
-                        distance_metric="cosine",
-                        enforce_detection=False
-                    )
-                    
-                    # DeepFace returns distance; lower is better
-                    distance = result["distance"]
-                    
-                    if distance < best_distance:
-                        best_distance = distance
-                        best_match = folder
-                    
-                    # Clean up
-                    if os.path.exists(temp_face_path):
-                        os.remove(temp_face_path)
+                    try:
+                        result = DeepFace.verify(
+                            temp_face_path,
+                            reference_path,
+                            model_name="Facenet512",
+                            distance_metric="cosine",
+                            enforce_detection=False
+                        )
+                        distance = result["distance"]
+                        if distance < best_distance:
+                            best_distance = distance
+                            best_match = folder
+                    finally:
+                        if os.path.exists(temp_face_path):
+                            os.remove(temp_face_path)
                 
                 except Exception as e:
                     continue
@@ -333,7 +321,6 @@ class ImprovedAttendanceSystem:
         self.df.loc[len(self.df)] = [
             name, roll_no, date_str, time_str, status, f"{confidence_pct:.2f}", method
         ]
-        print(f"✓ {name} ({roll_no}) - {confidence_pct:.2f}% via {method}")
 
     # ==================== Frame Processing ====================
 
@@ -480,11 +467,7 @@ class ImprovedAttendanceSystem:
         cam.set(cv2.CAP_PROP_FRAME_WIDTH, self.settings.frame_width)
         cam.set(cv2.CAP_PROP_FRAME_HEIGHT, self.settings.frame_height)
         
-        print(f"\n🎥 Attendance System Started ({('DeepFace' if self.use_deepface else 'LBPH')})")
-        print(f"   Resolution: {self.settings.frame_width}x{self.settings.frame_height}")
-        print(f"   Required frames: {self.settings.required_consecutive_frames}")
-        print(f"   Press ENTER to exit...")
-        print("-" * 60)
+        print("Press ENTER or ESC to exit.")
         
         self.running = True
         t = threading.Thread(target=self.camera_thread, args=(cam,), daemon=True)
@@ -522,25 +505,11 @@ class ImprovedAttendanceSystem:
     def save_attendance(self):
         """Save attendance records to CSV and JSON."""
         if len(self.df) == 0:
-            print("No attendance records to save")
             return
-        
         csv_file, json_file = self._output_paths()
         self.df.to_csv(csv_file, index=False)
-        print(f"\n✓ Attendance saved to {csv_file}")
-        
         self.df.to_json(json_file, orient="records", indent=2)
-        print(f"✓ Attendance saved to {json_file}")
-        
-        print(f"\n📊 Summary:")
-        print(f"   Total attendees: {len(self.attendance)}")
-        print(f"   Total records: {len(self.df)}")
-        
-        # Show method usage
-        methods = self.df['Method'].value_counts()
-        print(f"   Recognition methods used:")
-        for method, count in methods.items():
-            print(f"      - {method}: {count} recognitions")
+        print(f"Total attendance records saved: {len(self.df)} ")
 
 
 def main():
@@ -550,12 +519,9 @@ def main():
         system = ImprovedAttendanceSystem(use_deepface=DEEPFACE_AVAILABLE)
         system.run()
     except FileNotFoundError as e:
-        print(f"❌ Error: {e}")
-        print("   Make sure you've run train_model.py first")
+        print(f"Error: {e}")
     except RuntimeError as e:
-        print(f"❌ Error: {e}")
-    except KeyboardInterrupt:
-        print("\n🛑 Shutting down...")
+        print(f"Error: {e}")
 
 
 if __name__ == "__main__":
