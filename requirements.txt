@@ -7,5 +7,5 @@ seaborn>=0.12.0
 scikit-learn>=1.3.0
 
 # Optional: for 99%+ accuracy with DeepFace
-deepface>=0.0.79
+deepface==0.0.79
 tensorflow>=2.13.0
